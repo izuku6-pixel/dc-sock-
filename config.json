@@ -3,5 +3,6 @@
     "webhook_url": "",
     "proxyless": true,
     "debug": false,
-    "default_interval_hours": 8
+    "default_interval_hours": 8,
+    "timezone": "IST"
 }

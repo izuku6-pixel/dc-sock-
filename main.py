@@ -10,12 +10,15 @@ import getpass
 import logging
 
 # ----- From Imports ----- #
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from colorama import Fore, Style
 from pystyle import Write, System, Colors, Colorate, Anime
 from threading import Thread
 from itertools import cycle
 from shutil import get_terminal_size
+
+# ----- Timezone (Indian Standard Time - UTC+5:30) ----- #
+IST = timezone(timedelta(hours=5, minutes=30))
 
 # ----- Variables ----- #
 CONFIG_PATH = 'config.json'
@@ -44,7 +47,7 @@ class Logger:
         return f"{self.prefix}[{self.MAGENTAA}{time}{self.PINK}] {self.PINK}[{self.CYAN}{level}{self.PINK}] -> {self.CYAN}{message}{Fore.RESET}"
 
     def get_time(self) -> str:
-        return datetime.now().strftime("%H:%M:%S")
+        return datetime.now(IST).strftime("%H:%M:%S")
 
     def success(self, message: str, start: int = None, end: int = None, level: str = "Success") -> None:
         print(self.message3(f"{self.GREEN}{level}", f"{self.GREEN}{message}", start, end))
@@ -88,7 +91,7 @@ class Loader:
         self.desc = desc
         self.end = end
         self.timeout = timeout
-        self.time = datetime.now().strftime("%H:%M:%S")
+        self.time = datetime.now(IST).strftime("%H:%M:%S")
 
         self._thread = Thread(target=self._animate, daemon=True)
         self.steps = ["⢿", "⣻", "⣽", "⣾", "⣷", "⣯", "⣟", "⡿"]
@@ -120,6 +123,7 @@ class Loader:
 
 def home():
     os.system('cls' if os.name == 'nt' else 'clear')
+    ist_time = datetime.now(IST).strftime("%d-%m-%Y %I:%M:%S %p IST")
     banner = rf"""
     		   /$$$$$$   /$$                         /$$              /$$$$$$                            /$$                    
     		  /$$__  $$ | $$                        | $$             /$$__  $$                          | $$                    
@@ -130,8 +134,8 @@ def home():
     		 |  $$$$$$/ |  $$$$/|  $$$$$$/|  $$$$$$$| $$ \  $$      |  $$$$$$/|  $$$$$$$| $$  | $$|  $$$$$$$|  $$$$$$$| $$      
     		  \______/   \___/   \______/  \_______/|__/  \__/       \______/  \_______/|__/  |__/ \_______/ \_______/|__/                                                                                                              
     		             
-    		                                      Welcome {username} | discord.gg/bestnitro  
-    		                              ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    		                Welcome {username} | discord.gg/bestnitro | Indian Time: {ist_time}
+    		                ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     		  ════════════════════════════════════════════════════════════════════════════════════════════════════════════════════════
 """
     Write.Print(banner, Colors.red_to_blue, interval=0.0000)
@@ -299,16 +303,23 @@ class MyClient(discord.Client):
                 channel = guild.get_channel(channel_id)
                 if channel:
                     try:
+                        sent_time_ist = datetime.now(IST).strftime("%I:%M:%S %p IST")
                         await self.send_stock_message(guild_id, channel_id, message)
                         slowmode = getattr(channel, 'slowmode_delay', 0) or 0
                         sleep_time = max(interval_seconds, slowmode)
+                        
+                        # Calculate next post time in Indian Standard Time (IST)
+                        next_post_time = datetime.now(IST) + timedelta(seconds=sleep_time)
+                        next_post_str = next_post_time.strftime("%I:%M:%S %p (%d-%b-%Y) IST")
                         hours_text = f"{interval_hours:g}h" if interval_hours >= 1 else f"{int(sleep_time)}s"
-                        log.message("Timer", f"Waiting {hours_text} ({int(sleep_time)}s) before next post in Guild {guild.name} ({guild_id}) Channel #{channel.name}...")
+                        
+                        log.message("Timer [IST]", f"Post sent at {sent_time_ist}. Next post in {hours_text} -> scheduled for {next_post_str} [Guild: {guild.name} ({guild_id}) | #{channel.name}]")
                         await asyncio.sleep(sleep_time)
                     except discord.errors.HTTPException as e:
                         if e.status == 429 and hasattr(e, 'retry_after'):
                             retry_after = getattr(e, 'retry_after', 60)
-                            log.warning(f"Rate limited on Guild {guild_id} Channel {channel_id}, retrying in {retry_after}s")
+                            retry_time = (datetime.now(IST) + timedelta(seconds=retry_after)).strftime("%I:%M:%S %p IST")
+                            log.warning(f"Rate limited on Guild {guild_id} Channel {channel_id}, retrying at {retry_time} ({retry_after}s)")
                             await asyncio.sleep(retry_after)
                         else:
                             log.failure(f"HTTPException for Guild {guild_id} Channel {channel_id}: {e}")
