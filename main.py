@@ -6,6 +6,7 @@ import time
 import random
 import requests
 import getpass
+import logging
 
 # ----- From Imports ----- #
 from datetime import datetime
@@ -401,10 +402,10 @@ def run_client_with_loader(token, proxy, debug):
 
     try:
         with loader:
-            if debug:
-                client.run(token)
-            else:
-                client.run(token, log_handler=None)
+            if not debug:
+                logging.getLogger('discord').setLevel(logging.CRITICAL)
+                logging.getLogger('discord.http').setLevel(logging.CRITICAL)
+            client.run(token)
     except Exception as e:
         log.failure(f"Failed to run client: {e}")
 
