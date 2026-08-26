@@ -138,6 +138,8 @@ def home():
 home()
 class MyClient(discord.Client):
     def __init__(self, token, proxy=None, *args, **kwargs):
+        if hasattr(discord, 'Intents'):
+            kwargs.setdefault('intents', discord.Intents.all())
         super().__init__(*args, **kwargs)
         self.token = token
         self.proxy = self.format_proxy(proxy)
