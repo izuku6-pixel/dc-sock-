@@ -1,5 +1,6 @@
 # ----- Imports ----- #
 import discord
+import asyncio
 import json
 import os
 import time
@@ -145,6 +146,7 @@ class MyClient(discord.Client):
         self.proxy = self.format_proxy(proxy)
         self.config = self.load_config()
         self.debug = self.config.get("debug", False)
+        self.default_interval_hours = float(self.config.get("default_interval_hours", 8))
         self.servers = []
         self.load_servers()
         self.stock_messages = {}
@@ -201,13 +203,11 @@ class MyClient(discord.Client):
         if guild is None:
             self.log_to_webhook(f"Guild {guild_id} not found", error=True)
             log.failure(f"Guild {guild_id} not found")
-            input('')
             return
         channel = guild.get_channel(channel_id)
         if channel is None:
             self.log_to_webhook(f"Channel {channel_id} not found in guild {guild.name}", error=True)
             log.failure(f"Channel {channel_id} not found in guild {guild.name}")
-            input('')
             return
         try:
             await channel.send(message)
@@ -277,18 +277,22 @@ class MyClient(discord.Client):
         # Start a separate task for each server/channel
         self.channel_tasks = []
         for server in self.servers:
-            guild_id = server['guild_id']
-            channel_id = server['channel_id']
-            task = self.loop.create_task(self.channel_message_loop(guild_id, channel_id))
+            task = self.loop.create_task(self.channel_message_loop(server))
             self.channel_tasks.append(task)
         if self.debug:
             log.debug("Started per-channel message loops")
 
-    async def channel_message_loop(self, guild_id, channel_id):
+    async def channel_message_loop(self, server):
+        guild_id = server['guild_id']
+        channel_id = server['channel_id']
+        interval_hours = float(server.get('interval_hours', self.default_interval_hours))
+        interval_seconds = max(interval_hours * 3600, 1)
+
         while True:
             message = self.get_stock_message(guild_id, channel_id) if self.use_different_messages else self.get_stock_message()
             if message is None:
                 log.warning(f"No valid stock message found for Guild {guild_id} Channel {channel_id}")
+                await asyncio.sleep(10)
                 continue
             guild = self.get_guild(guild_id)
             if guild:
@@ -296,34 +300,51 @@ class MyClient(discord.Client):
                 if channel:
                     try:
                         await self.send_stock_message(guild_id, channel_id, message)
-                        delay = max(getattr(channel, 'slowmode_delay', 1), 1)
-                        if self.debug:
-                            log.debug(f"Sent message to Guild {guild_id} Channel {channel_id} and sleeping for {delay}s")
+                        slowmode = getattr(channel, 'slowmode_delay', 0) or 0
+                        sleep_time = max(interval_seconds, slowmode)
+                        hours_text = f"{interval_hours:g}h" if interval_hours >= 1 else f"{int(sleep_time)}s"
+                        log.message("Timer", f"Waiting {hours_text} ({int(sleep_time)}s) before next post in Guild {guild.name} ({guild_id}) Channel #{channel.name}...")
+                        await asyncio.sleep(sleep_time)
                     except discord.errors.HTTPException as e:
                         if e.status == 429 and hasattr(e, 'retry_after'):
                             retry_after = getattr(e, 'retry_after', 60)
                             log.warning(f"Rate limited on Guild {guild_id} Channel {channel_id}, retrying in {retry_after}s")
+                            await asyncio.sleep(retry_after)
                         else:
                             log.failure(f"HTTPException for Guild {guild_id} Channel {channel_id}: {e}")
+                            await asyncio.sleep(60)
                     except Exception as e:
                         log.failure(f"Unexpected error in channel loop for Guild {guild_id} Channel {channel_id}: {e}")
+                        await asyncio.sleep(60)
                 else:
                     log.failure(f"Channel {channel_id} not found in guild {guild_id}")
+                    await asyncio.sleep(60)
             else:
                 log.failure(f"Guild {guild_id} not found")
+                await asyncio.sleep(60)
 
     def configure(self):
         use_saved = log.question("Use servers from servers.json? (y/n): ").lower() == 'y'
         if not use_saved:
+            self.servers = []
             add_more = True
             while add_more:
                 guild_id = int(log.question("Enter Guild ID: "))
                 channel_id = int(log.question("Enter Channel ID: "))
-                self.servers.append({"guild_id": guild_id, "channel_id": channel_id})
+                interval_input = log.question(f"Enter posting interval in hours (default: {self.default_interval_hours:g}): ").strip()
+                try:
+                    interval_hours = float(interval_input) if interval_input else self.default_interval_hours
+                except ValueError:
+                    interval_hours = self.default_interval_hours
+                self.servers.append({"guild_id": guild_id, "channel_id": channel_id, "interval_hours": interval_hours})
                 add_more = log.question("Add another server? (y/n): ").lower() == 'y'
             save_to_file = log.question("Save servers to servers.json? (y/n): ").lower() == 'y'
             if save_to_file:
                 self.save_servers()
+        else:
+            for server in self.servers:
+                if 'interval_hours' not in server:
+                    server['interval_hours'] = self.default_interval_hours
         
         reply_to_dms = log.question("Reply to DMs? (y/n): ").lower() == 'y'
         if reply_to_dms:
